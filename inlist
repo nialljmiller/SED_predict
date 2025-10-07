@@ -3,7 +3,7 @@ data_file = data/Cyg_training_data.csv
 
 [hyperparameters]
 learning_rate = 0.1
-n_estimators = 1000
+n_estimators = 200
 max_depth = 3
 
 [general]
@@ -11,4 +11,4 @@ test_size = 0.2
 val_size = 0.2
 random_state = 69
 output_dir = outputs/
-model_type = ngboost
+model_type = mlp
