@@ -1,9 +1,9 @@
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-def train_xgboost(X_train, y_train, learning_rate=0.1, n_estimators=100, max_depth=3):
+def train_xgboost(X_train, y_train, X_val, y_val, learning_rate=0.1, n_estimators=100, max_depth=3):
     """
-    Trains an XGBoost regressor model.
+    Trains an XGBoost regressor model and returns the model along with RMSE history.
     """
     model = xgb.XGBRegressor(
         objective='reg:squarederror',
@@ -12,8 +12,14 @@ def train_xgboost(X_train, y_train, learning_rate=0.1, n_estimators=100, max_dep
         max_depth=max_depth,
         random_state=42
     )
-    model.fit(X_train, y_train)
-    return model
+    eval_set = [(X_train, y_train), (X_val, y_val)]
+    model.fit(X_train, y_train, eval_set=eval_set, verbose=False)
+    evals_result = model.evals_result()
+    history = {
+        'train': evals_result['validation_0']['rmse'],
+        'val': evals_result['validation_1']['rmse']
+    }
+    return model, history
 
 def evaluate_model(model, X_test, y_test):
     """

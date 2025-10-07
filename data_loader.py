@@ -1,9 +1,9 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-def load_and_split_data(data_file, test_size=0.2, random_state=42):
+def load_and_split_data(data_file, test_size=0.2, val_size=0.2, random_state=42):
     """
-    Loads the CSV data, preprocesses it, and splits into train/test sets.
+    Loads the CSV data, preprocesses it, and splits into train/validation/test sets.
     
     Assumes the CSV has columns: GAL_LONG, GAL_LAT, Ks_mag, I1_mag, I2_mag, I3_mag, I4_mag, Mips_24_mag, alpha.
     Features: All except Mips_24_mag (target).
@@ -21,7 +21,10 @@ def load_and_split_data(data_file, test_size=0.2, random_state=42):
     X = df[features]
     y = df[target]
     
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+    # Split into train+val and test
+    X_train_val, X_test, y_train_val, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
     
-    return X_train, X_test, y_train, y_test
+    # Split train+val into train and val
+    X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=val_size / (1 - test_size), random_state=random_state)
+    
+    return X_train, X_val, X_test, y_train, y_val, y_test
