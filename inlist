@@ -1,10 +1,10 @@
 [paths]
-data_file = data/Cyg_training_data.csv
+data_file = data/yso_training_data.csv
 
 [hyperparameters]
-learning_rate = 0.1
-n_estimators = 200
-max_depth = 3
+learning_rate = 0.01
+n_estimators = 2000
+max_depth = 6
 
 [general]
 test_size = 0.2

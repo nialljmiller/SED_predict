@@ -26,11 +26,11 @@ def generate_posterior(model, model_type, X, predictions, alphas, history, n_sam
         alpha = alphas[idx]
 
         # Classify stage based on α (standard thresholds, per paper)
-        if alpha > 0.3:
+        if alpha > 1.0:
             stage = 'Class0'
         elif alpha > -0.3:
             stage = 'ClassI'
-        elif alpha > -1.6:
+        elif alpha > -1.:
             stage = 'ClassII'
         else:
             stage = 'ClassIII'

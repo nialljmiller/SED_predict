@@ -3,6 +3,8 @@ import os
 from data_loader import load_and_split_data
 from posterior import generate_posterior  # Import the new function
 import numpy as np
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+import pandas as pd 
 
 from plots import (
     plot_actual_vs_predicted, 
@@ -37,9 +39,19 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     
     # Load and split data
-    X_train, X_val, X_test, y_train, y_val, y_test = load_and_split_data(
-        data_file, test_size, val_size, random_state
-    )
+    # First get the full data
+    df = pd.read_csv(data_file)
+    features = ['GAL_LONG', 'GAL_LAT', 'Ks_mag', 'I1_mag', 'I2_mag', 'I3_mag', 'I4_mag', 'alpha']
+    target = 'Mips_24_mag'
+    df = df.dropna(subset=[target])
+    X = df[features]
+    y = df[target]
+    
+    # Split into train_val and test
+    X_train_val, X_test, y_train_val, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+    
+    # Split train_val into train and val
+    X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=val_size / (1 - test_size), random_state=random_state)
     
     # Train and evaluate based on model_type
     scaler = None
@@ -51,10 +63,54 @@ def main():
         )
         predictions = evaluate_model(model, X_test, y_test)
     elif model_type == 'xgboost':
+        import xgboost as xgb
         from xgboost_model import train_xgboost, evaluate_model
-        model, history = train_xgboost(
-            X_train, y_train, X_val, y_val, learning_rate, n_estimators, max_depth
+        
+        # Base model for search (without early stopping, as CV handles validation)
+        base_model = xgb.XGBRegressor(
+            objective='reg:squarederror',
+            random_state=42,
+            reg_alpha=0.1,
+            reg_lambda=1.0
         )
+        
+        # Parameter distribution for RandomizedSearchCV
+        param_dist = {
+            'learning_rate': [0.005, 0.01, 0.05],
+            'n_estimators': [500, 1000, 2000],
+            'max_depth': [4, 6, 8],
+            'min_child_weight': [1, 3, 5],
+            'subsample': [0.7, 0.8, 1.0],
+            'colsample_bytree': [0.7, 0.8, 1.0]
+        }
+        
+        random_search = RandomizedSearchCV(
+            estimator=base_model,
+            param_distributions=param_dist,
+            n_iter=50,  # Number of parameter settings sampled; adjust as needed
+            cv=3,
+            scoring='neg_mean_squared_error',
+            verbose=1,
+            n_jobs=-1,
+            random_state=random_state
+        )
+        
+        random_search.fit(X_train_val, y_train_val)
+        
+        best_params = random_search.best_params_
+        print("Best parameters found: ", best_params)
+        
+        # Train final model with best params using original train/val for history and early stopping
+        model, history = train_xgboost(
+            X_train, y_train, X_val, y_val,
+            learning_rate=best_params['learning_rate'],
+            n_estimators=best_params['n_estimators'],
+            max_depth=best_params['max_depth'],
+            min_child_weight=best_params['min_child_weight'],
+            subsample=best_params['subsample'],
+            colsample_bytree=best_params['colsample_bytree']
+        )
+        
         predictions = evaluate_model(model, X_test, y_test)
     elif model_type == 'mlp':
         from mlp_model import train_mlp, evaluate_model
@@ -63,8 +119,8 @@ def main():
         )
         predictions = evaluate_model(model, scaler, X_test, y_test)
     else:
-        raise ValueError(f"Unsupported model_type: {model_type}. Choose 'xgboost', 'ngboost', or 'mlp'.")
-
+        raise ValueError(f"Unsupported model_type: {model_type}.")
+    
     # Generate plots
     plot_actual_vs_predicted(y_test, predictions, os.path.join(output_dir, 'actual_vs_predicted.png'))
     plot_feature_importance(
