@@ -34,6 +34,10 @@ def main():
     random_state = int(config['general']['random_state'])
     output_dir = config['general']['output_dir']
     model_type = config['general'].get('model_type', 'xgboost')  # Default to xgboost
+
+    # Control parallelism to avoid exhausting system resources during CV or model training
+    search_n_jobs = max(1, int(config['general'].get('search_n_jobs', '1')))
+    booster_n_jobs = max(1, int(config['general'].get('booster_n_jobs', str(max(1, os.cpu_count() or 1)))))
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -71,7 +75,8 @@ def main():
             objective='reg:squarederror',
             random_state=42,
             reg_alpha=0.1,
-            reg_lambda=1.0
+            reg_lambda=1.0,
+            n_jobs=booster_n_jobs
         )
         
         # Parameter distribution for RandomizedSearchCV
@@ -91,7 +96,7 @@ def main():
             cv=3,
             scoring='neg_mean_squared_error',
             verbose=1,
-            n_jobs=-1,
+            n_jobs=search_n_jobs,
             random_state=random_state
         )
         
