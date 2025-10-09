@@ -1,3 +1,5 @@
+import inspect
+
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
@@ -16,14 +18,37 @@ def train_xgboost(X_train, y_train, X_val, y_val, learning_rate=0.01, n_estimato
         colsample_bytree=colsample_bytree,
         reg_alpha=reg_alpha,
         reg_lambda=reg_lambda,
-        random_state=42
+        random_state=42,
+        eval_metric='rmse'
     )
     eval_set = [(X_train, y_train), (X_val, y_val)]
+    fit_signature = inspect.signature(model.fit)
+    supports_callbacks = 'callbacks' in fit_signature.parameters and hasattr(xgb, 'callback')
+    supports_early_stopping = 'early_stopping_rounds' in fit_signature.parameters
+
+    fit_kwargs = {
+        'eval_set': eval_set,
+        'verbose': False,
+    }
+
+    if supports_callbacks and hasattr(xgb.callback, 'EarlyStopping'):
+        fit_kwargs['callbacks'] = [
+            xgb.callback.EarlyStopping(
+                rounds=50,
+                metric_name='rmse',
+                data_name='validation_1',
+                save_best=True
+            )
+        ]
+    elif supports_early_stopping:
+        fit_kwargs['early_stopping_rounds'] = 50
+    else:
+        print("Warning: Installed XGBoost does not support early stopping; proceeding without it.")
+
     model.fit(
-        X_train, y_train, 
-        eval_set=eval_set, 
-        verbose=False,
-        early_stopping_rounds=50  # Stop if no improvement for 50 rounds
+        X_train,
+        y_train,
+        **fit_kwargs
     )
     evals_result = model.evals_result()
     history = {
