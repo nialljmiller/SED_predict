@@ -16,14 +16,23 @@ def train_xgboost(X_train, y_train, X_val, y_val, learning_rate=0.01, n_estimato
         colsample_bytree=colsample_bytree,
         reg_alpha=reg_alpha,
         reg_lambda=reg_lambda,
-        random_state=42
+        random_state=42,
+        eval_metric='rmse'
     )
     eval_set = [(X_train, y_train), (X_val, y_val)]
     model.fit(
-        X_train, y_train, 
-        eval_set=eval_set, 
+        X_train,
+        y_train,
+        eval_set=eval_set,
         verbose=False,
-        early_stopping_rounds=50  # Stop if no improvement for 50 rounds
+        callbacks=[
+            xgb.callback.EarlyStopping(
+                rounds=50,
+                metric_name='rmse',
+                data_name='validation_1',
+                save_best=True
+            )
+        ]
     )
     evals_result = model.evals_result()
     history = {
