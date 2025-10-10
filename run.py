@@ -42,20 +42,15 @@ def main():
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
-    # Load and split data
-    # First get the full data
-    df = pd.read_csv(data_file)
-    features = ['GAL_LONG', 'GAL_LAT', 'Ks_mag', 'I1_mag', 'I2_mag', 'I3_mag', 'I4_mag', 'alpha']
-    target = 'Mips_24_mag'
-    df = df.dropna(subset=[target])
-    X = df[features]
-    y = df[target]
+    # Load and split data using data_loader for consistency
+    X_train, X_val, X_test, y_train, y_val, y_test = load_and_split_data(
+        data_file, test_size, val_size, random_state
+    )
     
-    # Split into train_val and test
-    X_train_val, X_test, y_train_val, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
-    
-    # Split train_val into train and val
-    X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=val_size / (1 - test_size), random_state=random_state)
+    # For tuning, recreate X_train_val and y_train_val (since splits are deterministic)
+    # But since features are now in data_loader, we can concat train and val
+    X_train_val = pd.concat([X_train, X_val])
+    y_train_val = pd.concat([y_train, y_val])
     
     # Train and evaluate based on model_type
     scaler = None
