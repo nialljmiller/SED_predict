@@ -96,12 +96,20 @@ def plot_features_vs_error(X_test, y_test, predictions, save_path):
     Plots each feature against absolute prediction error.
     """
     residuals = np.abs(predictions - y_test)
-    fig, axs = plt.subplots(2, 4, figsize=(20, 10))
+    num_features = len(X_test.columns)
+    if num_features == 0:
+        raise ValueError("X_test must contain at least one feature to plot.")
+
+    cols = min(4, num_features)
+    rows = int(np.ceil(num_features / cols))
+    fig, axs = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows), squeeze=False)
     axs = axs.flatten()
     for i, col in enumerate(X_test.columns):
         sns.scatterplot(x=X_test[col], y=residuals, ax=axs[i], alpha=0.5)
         axs[i].set_xlabel(col)
         axs[i].set_ylabel('Absolute Error')
+    for ax in axs[num_features:]:
+        ax.set_visible(False)
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
