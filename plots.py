@@ -119,8 +119,29 @@ def plot_spatial_error(X_test, y_test, predictions, save_path):
     Plots galactic coordinates colored by absolute prediction error.
     """
     residuals = np.abs(predictions - y_test)
+    if 'GAL_LAT' not in X_test.columns:
+        raise KeyError("'GAL_LAT' column is required in X_test for spatial plotting.")
+
+    # Prefer using the raw longitude if it is present; otherwise reconstruct it from the
+    # cyclic encodings. Using DataFrame.get avoids spurious KeyErrors that can arise when
+    # downstream preprocessing has dropped the original column.
+    gal_long = X_test.get('GAL_LONG')
+
+    if gal_long is None:
+        required_longitude_terms = {'GAL_LONG_sin', 'GAL_LONG_cos'}
+        if required_longitude_terms.issubset(X_test.columns):
+            sin_component = X_test['GAL_LONG_sin']
+            cos_component = X_test['GAL_LONG_cos']
+            gal_long = np.degrees(np.arctan2(sin_component, cos_component)) % 360
+        else:
+            missing = required_longitude_terms.difference(X_test.columns)
+            raise KeyError(
+                "X_test must contain either 'GAL_LONG' or both 'GAL_LONG_sin' and 'GAL_LONG_cos' for spatial plotting. "
+                f"Missing columns: {sorted(missing)}."
+            )
+
     plt.figure(figsize=(10, 6))
-    sc = plt.scatter(X_test['GAL_LONG'], X_test['GAL_LAT'], c=residuals, cmap='viridis', alpha=0.7)
+    sc = plt.scatter(gal_long, X_test['GAL_LAT'], c=residuals, cmap='viridis', alpha=0.7)
     plt.colorbar(sc, label='Absolute Error')
     plt.xlabel('Galactic Longitude')
     plt.ylabel('Galactic Latitude')
