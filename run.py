@@ -73,32 +73,33 @@ def main():
             reg_lambda=1.0,
             n_jobs=booster_n_jobs
         )
-        
+
         # Parameter distribution for RandomizedSearchCV
         param_dist = {
-            'learning_rate': [0.005, 0.01, 0.05],
-            'n_estimators': [500, 1000, 2000],
-            'max_depth': [4, 6, 8],
-            'min_child_weight': [1, 3, 5],
-            'subsample': [0.7, 0.8, 1.0],
-            'colsample_bytree': [0.7, 0.8, 1.0]
+            'learning_rate': 0.01,
+            'n_estimators': 2000,
+            'max_depth': 6,
+            'min_child_weight': 3,
+            'subsample': 0.7,
+            'colsample_bytree': 0.7
         }
         
-        random_search = RandomizedSearchCV(
-            estimator=base_model,
-            param_distributions=param_dist,
-            n_iter=50,  # Number of parameter settings sampled; adjust as needed
-            cv=3,
-            scoring='neg_mean_squared_error',
-            verbose=1,
-            n_jobs=search_n_jobs,
-            random_state=random_state
-        )
+        #random_search = RandomizedSearchCV(
+        #    estimator=base_model,
+        #    param_distributions=param_dist,
+        #    n_iter=50,  # Number of parameter settings sampled; adjust as needed
+        #    cv=1,
+        #    scoring='neg_mean_squared_error',
+        #    verbose=1,
+        #    n_jobs=search_n_jobs,
+        #    random_state=random_state
+        #)
         
-        random_search.fit(X_train_val, y_train_val)
+        #random_search.fit(X_train_val, y_train_val)
         
-        best_params = random_search.best_params_
-        print("Best parameters found: ", best_params)
+        best_params = param_dist
+        #random_search.best_params_
+        #print("Best parameters found: ", best_params)
         
         # Train final model with best params using original train/val for history and early stopping
         model, history = train_xgboost(
