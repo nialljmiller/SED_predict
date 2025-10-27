@@ -70,6 +70,16 @@ def _prepare_data(
     )
     df = _add_engineered_features(df)
 
+    if mode == 'train':
+        if TARGET_COLUMN not in df.columns:
+            raise ValueError(f"Target column '{TARGET_COLUMN}' not found; required for training.")
+        df[TARGET_COLUMN] = pd.to_numeric(df[TARGET_COLUMN], errors='coerce')
+    elif mode == 'inference':
+        if TARGET_COLUMN not in df.columns:
+            df[TARGET_COLUMN] = np.nan  # Add dummy target column for consistency
+        df[TARGET_COLUMN] = pd.to_numeric(df[TARGET_COLUMN], errors='coerce')
+
+
     # Coerce target to numeric in BOTH modes so dtype is never object
     if TARGET_COLUMN in df.columns:
         df[TARGET_COLUMN] = pd.to_numeric(df[TARGET_COLUMN], errors='coerce')
