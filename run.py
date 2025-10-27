@@ -1,10 +1,13 @@
 import configparser
 import os
+
+from joblib import dump
+
 from data_loader import load_and_split_data
 from posterior import generate_posterior  # Import the new function
 import numpy as np
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
-import pandas as pd 
+import pandas as pd
 
 from plots import (
     plot_actual_vs_predicted, 
@@ -122,6 +125,17 @@ def main():
     else:
         raise ValueError(f"Unsupported model_type: {model_type}.")
     
+    # Persist trained artefacts for later inference
+    model_path = os.path.join(output_dir, f"{model_type}_model.joblib")
+    dump(model, model_path)
+    print(f"Saved trained {model_type} model to {model_path}")
+
+    scaler_path = None
+    if scaler is not None:
+        scaler_path = os.path.join(output_dir, f"{model_type}_scaler.joblib")
+        dump(scaler, scaler_path)
+        print(f"Saved feature scaler to {scaler_path}")
+
     # Generate plots
     plot_actual_vs_predicted(y_test, predictions, os.path.join(output_dir, 'actual_vs_predicted.png'))
     plot_feature_importance(
