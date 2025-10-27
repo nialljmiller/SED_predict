@@ -86,25 +86,10 @@ def main():
             'subsample': 0.7,
             'colsample_bytree': 0.7
         }
-        
-        #random_search = RandomizedSearchCV(
-        #    estimator=base_model,
-        #    param_distributions=param_dist,
-        #    n_iter=50,  # Number of parameter settings sampled; adjust as needed
-        #    cv=1,
-        #    scoring='neg_mean_squared_error',
-        #    verbose=1,
-        #    n_jobs=search_n_jobs,
-        #    random_state=random_state
-        #)
-        
-        #random_search.fit(X_train_val, y_train_val)
+
         
         best_params = param_dist
-        #random_search.best_params_
-        #print("Best parameters found: ", best_params)
-        
-        # Train final model with best params using original train/val for history and early stopping
+
         model, history = train_xgboost(
             X_train, y_train, X_val, y_val,
             learning_rate=best_params['learning_rate'],

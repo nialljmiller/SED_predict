@@ -6,11 +6,20 @@ from typing import Optional
 from joblib import load
 
 from data_loader import FEATURE_COLUMNS, TARGET_COLUMN, load_features_for_inference
+import pandas as pd
+import numpy as np
+
+# Add imports for plotting
+from plots import (
+    plot_actual_vs_predicted, plot_residuals, plot_error_distribution,
+    plot_spatial_error, plot_uncertainty_comparison, plot_posterior_distributions,
+    plot_residual_distributions
+)
+from posterior import generate_posterior, quantify_uncertainties
 
 
 def _read_config(path: str) -> configparser.ConfigParser:
     """Safely read a configuration file, returning an empty parser if missing."""
-
     parser = configparser.ConfigParser()
     if os.path.exists(path):
         parser.read(path)
@@ -61,6 +70,7 @@ def parse_args() -> argparse.Namespace:
         dest="output_dir",
         help="Directory containing training artefacts. Defaults to the training output_dir."
     )
+
     return parser.parse_args()
 
 
@@ -101,13 +111,14 @@ def main():
     original_df, feature_frame = load_features_for_inference(data_file)
 
     model = load(model_path)
-
+    scaler = None
     if model_type == 'mlp':
         scaler = load(scaler_path)
         transformed_features = scaler.transform(feature_frame)
         predictions = model.predict(transformed_features)
         results_df = original_df.copy()
         results_df[f"{TARGET_COLUMN}_pred"] = predictions
+        pred_dist = None  # No distribution for MLP
     elif model_type == 'ngboost':
         pred_dist = model.pred_dist(feature_frame)
         predictions = pred_dist.loc
@@ -119,6 +130,7 @@ def main():
         predictions = model.predict(feature_frame)
         results_df = original_df.copy()
         results_df[f"{TARGET_COLUMN}_pred"] = predictions
+        pred_dist = None  # No distribution for XGBoost
 
     # Keep only original columns plus predictions to avoid duplicating engineered features unless desired
     base_columns = [col for col in original_df.columns if col not in FEATURE_COLUMNS or col == TARGET_COLUMN]
@@ -128,6 +140,47 @@ def main():
     export_df.to_csv(output_file, index=False)
 
     print(f"Inference complete. Saved predictions for {len(export_df)} sources to {output_file}")
+
+    print("Generating inference plots...")
+    y_true = original_df[TARGET_COLUMN] if TARGET_COLUMN in original_df.columns else None
+    has_ground_truth = y_true is not None
+
+    # Common plots (adapt spatial_error to use predictions if no y_true)
+    if has_ground_truth:
+        plot_actual_vs_predicted(y_true, predictions, os.path.join(output_dir, 'inf_actual_vs_predicted.png'))
+        plot_residuals(y_true, predictions, os.path.join(output_dir, 'inf_residuals.png'))
+        plot_error_distribution(y_true, predictions, os.path.join(output_dir, 'inf_error_distribution.png'))
+        plot_spatial_error(feature_frame, y_true, predictions, os.path.join(output_dir, 'inf_spatial_error.png'))
+    else:
+        # Fallback: Plot spatial distribution of predictions (modify plot_spatial_error accordingly if needed)
+        plot_spatial_error(feature_frame, predictions, predictions, os.path.join(output_dir, 'inf_spatial_predictions.png'))  # Use predictions as proxy for errors
+
+    # Uncertainty plots for NGBoost or if history is available (assume history can be loaded or approximated)
+    if model_type == 'ngboost' and pred_dist is not None:
+        # Approximate history if needed; here we use a placeholder (load from training if available)
+        history = {'val': [np.mean(std_devs)]}  # Placeholder; enhance as needed
+        alphas = feature_frame['alpha'].values if 'alpha' in feature_frame.columns else np.zeros(len(predictions))
+        posteriors, model_samples_list, deltas_list = generate_posterior(
+            model, model_type, feature_frame, predictions, alphas, history
+        )
+        stages = []  # Derive as in run.py
+        for alpha in alphas:
+            if alpha > 0.3: stages.append('Class0')
+            elif alpha > -0.3: stages.append('ClassI')
+            elif alpha > -1.6: stages.append('ClassII')
+            else: stages.append('ClassIII')
+        uncertainty_df, aggregates = quantify_uncertainties(
+            posteriors, model_samples_list, deltas_list, stages,
+            os.path.join(output_dir, 'inf_uncertainty_quantification.csv')
+        )
+        plot_uncertainty_comparison(aggregates, os.path.join(output_dir, 'inf_uncertainty_comparison.png'))
+        plot_posterior_distributions(posteriors, model_samples_list, deltas_list, y_true.values if has_ground_truth else None,
+                                     os.path.join(output_dir, 'inf_posterior_dist.png'))
+        if has_ground_truth:
+            plot_residual_distributions(y_true, predictions, model_samples_list, deltas_list,
+                                        os.path.join(output_dir, 'inf_residual_distributions.png'))
+
+    print(f"Plots saved in {output_dir} with prefix 'inf_' for inference-specific visualizations.")
 
 
 if __name__ == "__main__":

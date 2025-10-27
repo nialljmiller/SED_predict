@@ -3,7 +3,8 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 FEATURE_COLUMNS = [
-    'GAL_LONG_sin', 'GAL_LONG_cos', 'GAL_LAT',
+    'GAL_LAT', 'GAL_LONG',                  #these to is not so good 
+    'GAL_LONG_sin', 'GAL_LONG_cos', 
     'Ks_mag', 'I1_mag', 'I2_mag', 'I3_mag', 'I4_mag', 'alpha',
     'Ks_I1', 'I1_I2', 'I2_I3', 'I3_I4', 'I4_mag_sq'
 ]
