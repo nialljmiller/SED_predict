@@ -1,10 +1,12 @@
+# data_loader.py
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from typing import List, Optional
 
 FEATURE_COLUMNS = [
-    'GAL_LAT', 'GAL_LONG',                  #these to is not so good 
-    'GAL_LONG_sin', 'GAL_LONG_cos', 
+    'GAL_LAT', 'GAL_LONG',
+    'GAL_LONG_sin', 'GAL_LONG_cos',
     'Ks_mag', 'I1_mag', 'I2_mag', 'I3_mag', 'I4_mag', 'alpha',
     'Ks_I1', 'I1_I2', 'I2_I3', 'I3_I4', 'I4_mag_sq'
 ]
@@ -13,74 +15,123 @@ TARGET_COLUMN = 'Mips_24_mag'
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy of *df* with all derived features required by the models."""
-
     engineered = df.copy()
-
-    # Add derived features: color indices
     engineered['Ks_I1'] = engineered['Ks_mag'] - engineered['I1_mag']
     engineered['I1_I2'] = engineered['I1_mag'] - engineered['I2_mag']
     engineered['I2_I3'] = engineered['I2_mag'] - engineered['I3_mag']
     engineered['I3_I4'] = engineered['I3_mag'] - engineered['I4_mag']
-
-    # Cyclic encoding for GAL_LONG (replacing original GAL_LONG)
-    engineered['GAL_LONG_sin'] = np.sin(2 * np.pi * engineered['GAL_LONG'] / 360)
-    engineered['GAL_LONG_cos'] = np.cos(2 * np.pi * engineered['GAL_LONG'] / 360)
-
-    # Polynomial term for I4_mag (to help with non-linearity in faint sources)
+    engineered['GAL_LONG_sin'] = np.sin(2 * np.pi * engineered['GAL_LONG'] / 360.0)
+    engineered['GAL_LONG_cos'] = np.cos(2 * np.pi * engineered['GAL_LONG'] / 360.0)
     engineered['I4_mag_sq'] = engineered['I4_mag'] ** 2
-
     return engineered
 
 
-def load_and_split_data(data_file, test_size=0.2, val_size=0.2, random_state=42):
-    """
-    Loads the CSV data, preprocesses it, and splits into train/validation/test sets.
+def _series_bad_mask(s: pd.Series, bad_sentinels: Optional[List[float]]) -> pd.Series:
+    s_num = pd.to_numeric(s, errors='coerce')
+    mask = s_num.isna() | ~np.isfinite(s_num)
+    if bad_sentinels:
+        mask = mask | s_num.isin(bad_sentinels)
+    return mask
 
-    Assumes the CSV has columns: GAL_LONG, GAL_LAT, Ks_mag, I1_mag, I2_mag, I3_mag, I4_mag, Mips_24_mag, alpha.
-    Features: All except Mips_24_mag (target).
-    Handles missing values by dropping rows (if any; adjust as needed for prediction on missing targets).
+
+def _drop_bad_feature_columns(
+    df: pd.DataFrame,
+    candidate_features: List[str],
+    bad_sentinels: Optional[List[float]]
+) -> List[str]:
+    kept = []
+    for col in candidate_features:
+        if col not in df.columns:
+            continue
+        if _series_bad_mask(df[col], bad_sentinels).any():
+            continue  # drop the entire feature column if any bad exists
+        df[col] = pd.to_numeric(df[col], errors='coerce')  # force numeric dtype
+        kept.append(col)
+    return kept
+
+
+def _prepare_data(
+    data_file: str,
+    mode: str,  # 'train' or 'inference'
+    test_size: float = 0.2,
+    val_size: float = 0.2,
+    random_state: int = 42,
+    bad_sentinels: Optional[List[float]] = None
+):
     """
-    df = pd.read_csv(data_file)
+    Universal path:
+      - Drop feature columns if any element in them is bad (NaN/±inf/sentinel). Never drop target for this reason.
+      - Train: drop rows with any bad in features OR bad target.
+      - Inference: ignore target quality entirely; keep rows with clean features (target is still numeric NaN where junk).
+    """
+    df = pd.read_csv(
+        data_file,
+        na_values=["", "NA", "NaN", "nan", "Inf", "-Inf", "NULL", "null", "None"]
+    )
     df = _add_engineered_features(df)
 
-    if TARGET_COLUMN not in df.columns:
-        raise ValueError(f"Target column '{TARGET_COLUMN}' not found in the input data.")
+    # Coerce target to numeric in BOTH modes so dtype is never object
+    if TARGET_COLUMN in df.columns:
+        df[TARGET_COLUMN] = pd.to_numeric(df[TARGET_COLUMN], errors='coerce')
+    elif mode == 'train':
+        raise ValueError(f"Target column '{TARGET_COLUMN}' not found; required for training.")
 
-    # Drop rows with missing target
-    df = df.dropna(subset=[TARGET_COLUMN])
+    # Decide usable feature columns
+    candidate_features = [c for c in FEATURE_COLUMNS if c in df.columns]
+    kept_features = _drop_bad_feature_columns(df, candidate_features, bad_sentinels)
+    if not kept_features:
+        raise ValueError("No usable feature columns remain after dropping bad columns.")
 
-    missing_features = [col for col in FEATURE_COLUMNS if col not in df.columns]
-    if missing_features:
-        raise ValueError(f"Missing required feature columns: {missing_features}")
+    X = df[kept_features].copy().replace([np.inf, -np.inf], np.nan)
 
-    X = df[FEATURE_COLUMNS]
+    if mode == 'inference':
+        # Keep rows with fully valid features; ignore target quality
+        good_rows = ~X.isna().any(axis=1)
+        return df.loc[good_rows].copy(), X.loc[good_rows]
+
+    # mode == 'train'
     y = df[TARGET_COLUMN]
+    y_bad = y.isna() | ~np.isfinite(y)
+    row_bad_features = X.isna().any(axis=1)
+    keep_rows = ~(row_bad_features | y_bad)
+    X = X.loc[keep_rows]
+    y = y.loc[keep_rows]
 
-    # Split into train+val and test
     X_train_val, X_test, y_train_val, y_test = train_test_split(
         X, y, test_size=test_size, random_state=random_state
     )
-
-    # Split train+val into train and val
     X_train, X_val, y_train, y_val = train_test_split(
         X_train_val, y_train_val,
         test_size=val_size / (1 - test_size),
         random_state=random_state
     )
-
     return X_train, X_val, X_test, y_train, y_val, y_test
 
 
-def load_features_for_inference(data_file):
-    """Load data for inference and return the original dataframe along with model features."""
+# Public API
+def load_and_split_data(
+    data_file: str,
+    test_size: float = 0.2,
+    val_size: float = 0.2,
+    random_state: int = 42,
+    bad_sentinels: Optional[List[float]] = None
+):
+    return _prepare_data(
+        data_file=data_file,
+        mode='train',
+        test_size=test_size,
+        val_size=val_size,
+        random_state=random_state,
+        bad_sentinels=bad_sentinels
+    )
 
-    df = pd.read_csv(data_file)
-    df = _add_engineered_features(df)
 
-    missing_features = [col for col in FEATURE_COLUMNS if col not in df.columns]
-    if missing_features:
-        raise ValueError(f"Missing required feature columns for inference: {missing_features}")
-
-    feature_frame = df[FEATURE_COLUMNS]
-    return df, feature_frame
+def load_features_for_inference(
+    data_file: str,
+    bad_sentinels: Optional[List[float]] = None
+):
+    return _prepare_data(
+        data_file=data_file,
+        mode='inference',
+        bad_sentinels=bad_sentinels
+    )
