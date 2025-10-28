@@ -131,6 +131,82 @@ def plot_spatial_error(X_test, y_test, predictions, save_path):
     plt.close()
 
 
+def _ensure_columns(df, required_columns, plot_name):
+    missing = [col for col in required_columns if col not in df.columns]
+    if missing:
+        raise ValueError(f"{plot_name} requires columns: {', '.join(missing)}")
+
+
+def plot_color_color_with_target(
+    df: pd.DataFrame,
+    target_column: str,
+    save_path: str,
+    base_band_x: tuple = ("Ks_mag", "I1_mag"),
+    base_band_y: tuple = ("I1_mag", None)
+):
+    """
+    Generate a colour-colour diagram that incorporates the predicted target band.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Dataframe containing the magnitudes and predicted target column.
+    target_column : str
+        Name of the predicted target column (e.g. "Mips_24_mag_pred").
+    save_path : str
+        Location to write the plot image.
+    base_band_x : tuple, optional
+        Two-element tuple specifying the bands for the x-axis colour (band_a - band_b).
+    base_band_y : tuple, optional
+        Two-element tuple specifying the bands for the y-axis colour. If the second
+        element is None, the predicted target is used for the subtraction.
+    """
+
+    band_x_a, band_x_b = base_band_x
+    band_y_a, band_y_b = base_band_y
+    if band_y_b is None:
+        band_y_b = target_column
+
+    required = [band_x_a, band_x_b, band_y_a, band_y_b, target_column]
+    _ensure_columns(df, required, "Colour-colour plot")
+
+    colour_x = df[band_x_a] - df[band_x_b]
+    colour_y = df[band_y_a] - df[band_y_b]
+
+    plt.figure(figsize=(8, 6))
+    sc = plt.scatter(colour_x, colour_y, c=df[target_column], cmap='plasma', alpha=0.7)
+    plt.colorbar(sc, label=target_column)
+    plt.xlabel(f"{band_x_a} - {band_x_b}")
+    label_y_rhs = band_y_b if band_y_b == target_column else band_y_b
+    plt.ylabel(f"{band_y_a} - {label_y_rhs}")
+    plt.title("Colour-Colour Diagram with Predicted Target Band")
+    plt.grid(alpha=0.3)
+    plt.savefig(save_path)
+    plt.close()
+
+
+def plot_galactic_position_with_band(
+    df: pd.DataFrame,
+    target_column: str,
+    save_path: str
+):
+    """
+    Scatter plot of galactic coordinates coloured by the predicted target band.
+    """
+
+    required = ["GAL_LONG", "GAL_LAT", target_column]
+    _ensure_columns(df, required, "Galactic position plot")
+
+    plt.figure(figsize=(10, 6))
+    sc = plt.scatter(df["GAL_LONG"], df["GAL_LAT"], c=df[target_column], cmap="plasma", alpha=0.7)
+    plt.colorbar(sc, label=target_column)
+    plt.xlabel("Galactic Longitude")
+    plt.ylabel("Galactic Latitude")
+    plt.title("Galactic Positions Coloured by Predicted Target Band")
+    plt.savefig(save_path)
+    plt.close()
+
+
 
 
 

@@ -13,7 +13,8 @@ import numpy as np
 from plots import (
     plot_actual_vs_predicted, plot_residuals, plot_error_distribution,
     plot_spatial_error, plot_uncertainty_comparison, plot_posterior_distributions,
-    plot_residual_distributions
+    plot_residual_distributions, plot_color_color_with_target,
+    plot_galactic_position_with_band
 )
 from posterior import generate_posterior, quantify_uncertainties
 
@@ -132,14 +133,9 @@ def main():
         results_df[f"{TARGET_COLUMN}_pred"] = predictions
         pred_dist = None  # No distribution for XGBoost
 
-    # Keep only original columns plus predictions to avoid duplicating engineered features unless desired
-    base_columns = [col for col in original_df.columns if col not in FEATURE_COLUMNS or col == TARGET_COLUMN]
-    export_columns = base_columns + [col for col in results_df.columns if col not in original_df.columns]
-    export_df = results_df[export_columns]
+    results_df.to_csv(output_file, index=False)
 
-    export_df.to_csv(output_file, index=False)
-
-    print(f"Inference complete. Saved predictions for {len(export_df)} sources to {output_file}")
+    print(f"Inference complete. Saved predictions for {len(results_df)} sources to {output_file}")
 
     print("Generating inference plots...")
     y_true = original_df[TARGET_COLUMN] if TARGET_COLUMN in original_df.columns else None
@@ -154,6 +150,25 @@ def main():
     else:
         # Fallback: Plot spatial distribution of predictions (modify plot_spatial_error accordingly if needed)
         plot_spatial_error(feature_frame, predictions, predictions, os.path.join(output_dir, 'inf_spatial_predictions.png'))  # Use predictions as proxy for errors
+
+    predicted_column = f"{TARGET_COLUMN}_pred"
+    try:
+        plot_color_color_with_target(
+            results_df,
+            predicted_column,
+            os.path.join(output_dir, 'inf_color_color.png')
+        )
+    except ValueError as exc:
+        print(f"Skipping color-color plot: {exc}")
+
+    try:
+        plot_galactic_position_with_band(
+            results_df,
+            predicted_column,
+            os.path.join(output_dir, 'inf_galactic_position.png')
+        )
+    except ValueError as exc:
+        print(f"Skipping galactic position plot: {exc}")
 
     # Uncertainty plots for NGBoost or if history is available (assume history can be loaded or approximated)
     if model_type == 'ngboost' and pred_dist is not None:
