@@ -138,6 +138,7 @@ def main():
     print(f"Inference complete. Saved predictions for {len(results_df)} sources to {output_file}")
 
     print("Generating inference plots...")
+
     y_true = original_df[TARGET_COLUMN] if TARGET_COLUMN in original_df.columns else None
     has_ground_truth = y_true is not None
 
@@ -147,28 +148,20 @@ def main():
         plot_residuals(y_true, predictions, os.path.join(output_dir, 'inf_residuals.png'))
         plot_error_distribution(y_true, predictions, os.path.join(output_dir, 'inf_error_distribution.png'))
         plot_spatial_error(feature_frame, y_true, predictions, os.path.join(output_dir, 'inf_spatial_error.png'))
-    else:
-        # Fallback: Plot spatial distribution of predictions (modify plot_spatial_error accordingly if needed)
-        plot_spatial_error(feature_frame, predictions, predictions, os.path.join(output_dir, 'inf_spatial_predictions.png'))  # Use predictions as proxy for errors
 
     predicted_column = f"{TARGET_COLUMN}_pred"
-    try:
-        plot_color_color_with_target(
-            results_df,
-            predicted_column,
-            os.path.join(output_dir, 'inf_color_color.png')
-        )
-    except ValueError as exc:
-        print(f"Skipping color-color plot: {exc}")
+    plot_color_color_with_target(results_df,predicted_column,os.path.join(output_dir, 'inf_color_color.png'))
 
-    try:
-        plot_galactic_position_with_band(
-            results_df,
-            predicted_column,
-            os.path.join(output_dir, 'inf_galactic_position.png')
-        )
-    except ValueError as exc:
-        print(f"Skipping galactic position plot: {exc}")
+    BASE_FEATURES = ['Ks_mag', 'I1_mag', 'I2_mag', 'I3_mag', 'I4_mag', predicted_column]
+    permtations = [[0,1,2,5],[2,3,4,5],[4,1,3,5]]
+
+    for perms in permtations:
+        output_string = str(str(BASE_FEATURES[perms[0]])+str(BASE_FEATURES[perms[1]])+str(BASE_FEATURES[perms[2]])+str(BASE_FEATURES[perms[3]])+'inf_color_color.png')
+        print(output_string)
+        plot_color_color_with_target(results_df,predicted_column,os.path.join(output_dir, output_string),(BASE_FEATURES[perms[0]],BASE_FEATURES[perms[1]]),(BASE_FEATURES[perms[2]],BASE_FEATURES[perms[3]]))
+
+    plot_galactic_position_with_band(results_df,predicted_column,os.path.join(output_dir, 'inf_galactic_position.png'))
+
 
     # Uncertainty plots for NGBoost or if history is available (assume history can be loaded or approximated)
     if model_type == 'ngboost' and pred_dist is not None:
