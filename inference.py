@@ -1,7 +1,7 @@
 import argparse
 import configparser
 import os
-from typing import Optional
+from typing import Iterable, Optional
 
 from joblib import load
 
@@ -17,6 +17,56 @@ from plots import (
     plot_galactic_position_with_band
 )
 from posterior import generate_posterior, quantify_uncertainties
+
+
+def _resolve_column_name(table: pd.DataFrame, candidates: Iterable[str]) -> Optional[str]:
+    for name in candidates:
+        if name in table.columns:
+            return name
+    return None
+
+
+def recalculate_alpha(table: pd.DataFrame) -> pd.DataFrame:
+    """Recompute the spectral index (alpha) using Ks and IRAC I4 magnitudes."""
+
+    if table.empty:
+        table = table.copy()
+        table['alpha'] = np.nan
+        return table
+
+    ks_col = _resolve_column_name(table, ('Ks_mag', 'mag_ks', 'Ks'))
+    i4_col = _resolve_column_name(table, ('I4_mag', 'mag8_0', 'I4'))
+
+    if ks_col is None or i4_col is None:
+        # If required magnitudes are unavailable, keep existing alpha (if any)
+        return table
+
+    ks_wavelength = 2.16031e-6
+    i4_wavelength = 7.92737e-6
+    zero_points = np.array([666.8, 63.7])
+
+    # Extract magnitudes and ensure numeric dtype
+    mags = table[[ks_col, i4_col]].apply(pd.to_numeric, errors='coerce').to_numpy()
+
+    flux_jy = np.full_like(mags, np.nan, dtype=float)
+
+    valid_rows = np.all(np.isfinite(mags), axis=1)
+    if np.any(valid_rows):
+        valid_mags = mags[valid_rows]
+        flux_jy_valid = (10 ** (23.0 - ((valid_mags + 48.6) / 2.5))) * zero_points
+        flux_jy[valid_rows] = flux_jy_valid
+
+    freqs = np.array([3e8 / ks_wavelength, 3e8 / i4_wavelength])
+    Kf = flux_jy[:, 0] * freqs[0]
+    i4f = flux_jy[:, 1] * freqs[1]
+
+    denom = np.log10(i4_wavelength) - np.log10(ks_wavelength)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        alpha_values = (np.log10(i4f) - np.log10(Kf)) / denom
+
+    table = table.copy()
+    table['alpha'] = alpha_values
+    return table
 
 
 def _read_config(path: str) -> configparser.ConfigParser:
@@ -132,6 +182,10 @@ def main():
         results_df = original_df.copy()
         results_df[f"{TARGET_COLUMN}_pred"] = predictions
         pred_dist = None  # No distribution for XGBoost
+
+    # Recalculate alpha for both the features used in plotting and the output table
+    feature_frame = recalculate_alpha(feature_frame)
+    results_df = recalculate_alpha(results_df)
 
     results_df.to_csv(output_file, index=False)
 
