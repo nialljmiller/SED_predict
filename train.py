@@ -38,6 +38,15 @@ def main():
     output_dir = config['general']['output_dir']
     model_type = config['general'].get('model_type', 'xgboost')  # Default to xgboost
 
+    feature_columns = None
+    target_column = None
+    if config.has_section('columns'):
+        raw_features = config['columns'].get('feature_columns', fallback='')
+        feature_columns = [col.strip() for col in raw_features.split(',') if col.strip()] or None
+        target_column = config['columns'].get('target_column', fallback=None)
+        if target_column:
+            target_column = target_column.strip() or None
+
     # Control parallelism to avoid exhausting system resources during CV or model training
     search_n_jobs = max(1, int(config['general'].get('search_n_jobs', '1')))
     booster_n_jobs = max(1, int(config['general'].get('booster_n_jobs', str(max(1, os.cpu_count() or 1)))))
@@ -47,7 +56,12 @@ def main():
     
     # Load and split data using data_loader for consistency
     X_train, X_val, X_test, y_train, y_val, y_test = load_and_split_data(
-        data_file, test_size, val_size, random_state
+        data_file,
+        test_size=test_size,
+        val_size=val_size,
+        random_state=random_state,
+        feature_columns=feature_columns,
+        target_column=target_column
     )
     
     # For tuning, recreate X_train_val and y_train_val (since splits are deterministic)

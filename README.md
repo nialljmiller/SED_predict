@@ -63,6 +63,9 @@ The `inlist` file supplies both training and inference defaults. Important keys 
 * `general.model_type` – One of `xgboost`, `ngboost`, or `mlp` determining which back-end is
   trained or loaded for inference.【F:train.py†L27-L116】【F:inference.py†L97-L157】
 * `general.output_dir` – Directory for trained artefacts, plots, and posterior samples.
+* `columns.feature_columns` / `columns.target_column` – Optional overrides for the feature matrix
+  and regression target used during training and inference. Leave blank to fall back to the default
+  astrophysical bands and MIPS 24 μm magnitude.【F:train.py†L33-L71】【F:inference.py†L107-L176】【F:data_loader.py†L6-L108】
 
 Override any value on the command line (see below) without editing the file.
 

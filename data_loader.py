@@ -3,14 +3,14 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from typing import List, Optional
 
-FEATURE_COLUMNS = [
+DEFAULT_FEATURE_COLUMNS = [
     'GAL_LAT', 'GAL_LONG',
     'GAL_LONG_sin', 'GAL_LONG_cos',
     'Ks_mag', 'I1_mag', 'I2_mag', 'I3_mag', 'I4_mag', 'alpha',
     'Ks_I1', 'I1_I2', 'I2_I3', 'I3_I4', 'I4_mag_sq'
 ]
 
-TARGET_COLUMN = 'Mips_24_mag'
+DEFAULT_TARGET_COLUMN = 'Mips_24_mag'
 
 BASE_FEATURES = ['GAL_LAT', 'GAL_LONG', 'Ks_mag', 'I1_mag', 'I2_mag', 'I3_mag', 'I4_mag', 'alpha']
 
@@ -44,7 +44,9 @@ def _prepare_data(
     test_size: float = 0.2,
     val_size: float = 0.2,
     random_state: int = 42,
-    bad_sentinels: Optional[List[float]] = None
+    bad_sentinels: Optional[List[float]] = None,
+    feature_columns: Optional[List[str]] = None,
+    target_column: Optional[str] = None
 ):
     """
     Universal path:
@@ -57,21 +59,23 @@ def _prepare_data(
         na_values=["", "NA", "NaN", "nan", "Inf", "-Inf", "NULL", "null", "None"]
     )
     df = _add_engineered_features(df)
+    feature_columns = feature_columns or DEFAULT_FEATURE_COLUMNS
+    target_column = target_column or DEFAULT_TARGET_COLUMN
     # Coerce target to numeric in BOTH modes so dtype is never object
-    if TARGET_COLUMN in df.columns:
-        df[TARGET_COLUMN] = pd.to_numeric(df[TARGET_COLUMN], errors='coerce')
+    if target_column in df.columns:
+        df[target_column] = pd.to_numeric(df[target_column], errors='coerce')
     elif mode == 'train':
-        raise ValueError(f"Target column '{TARGET_COLUMN}' not found; required for training.")
+        raise ValueError(f"Target column '{target_column}' not found; required for training.")
     else:  # inference
-        df[TARGET_COLUMN] = np.nan  # Add dummy if missing
+        df[target_column] = np.nan  # Add dummy if missing
 
     # Replace bad sentinels in target if provided
     if bad_sentinels:
-        df[TARGET_COLUMN] = df[TARGET_COLUMN].replace(bad_sentinels, np.nan)
+        df[target_column] = df[target_column].replace(bad_sentinels, np.nan)
 
     # Keep all features, replace inf with NaN
     X = pd.DataFrame(index=df.index)
-    for col in FEATURE_COLUMNS:
+    for col in feature_columns:
         if col in df.columns:
             X[col] = df[col].replace([np.inf, -np.inf], np.nan)
             if bad_sentinels:
@@ -86,7 +90,7 @@ def _prepare_data(
         return df.loc[keep_rows].copy(), X.loc[keep_rows]
 
     # mode == 'train'
-    y = df[TARGET_COLUMN]
+    y = df[target_column]
     y_bad = y.isna() | ~np.isfinite(y)
     row_any_bad = X.isna().any(axis=1)
     keep_rows = ~(row_any_bad | y_bad)
@@ -108,7 +112,9 @@ def load_and_split_data(
     test_size: float = 0.2,
     val_size: float = 0.2,
     random_state: int = 42,
-    bad_sentinels: Optional[List[float]] = None
+    bad_sentinels: Optional[List[float]] = None,
+    feature_columns: Optional[List[str]] = None,
+    target_column: Optional[str] = None
 ):
     return _prepare_data(
         data_file=data_file,
@@ -116,15 +122,21 @@ def load_and_split_data(
         test_size=test_size,
         val_size=val_size,
         random_state=random_state,
-        bad_sentinels=bad_sentinels
+        bad_sentinels=bad_sentinels,
+        feature_columns=feature_columns,
+        target_column=target_column
     )
 
 def load_features_for_inference(
     data_file: str,
-    bad_sentinels: Optional[List[float]] = None
+    bad_sentinels: Optional[List[float]] = None,
+    feature_columns: Optional[List[str]] = None,
+    target_column: Optional[str] = None
 ):
     return _prepare_data(
         data_file=data_file,
         mode='inference',
-        bad_sentinels=bad_sentinels
+        bad_sentinels=bad_sentinels,
+        feature_columns=feature_columns,
+        target_column=target_column
     )

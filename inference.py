@@ -5,7 +5,7 @@ from typing import Iterable, Optional
 
 from joblib import load
 
-from data_loader import FEATURE_COLUMNS, TARGET_COLUMN, load_features_for_inference
+from data_loader import DEFAULT_TARGET_COLUMN, load_features_for_inference
 import pandas as pd
 import numpy as np
 
@@ -83,6 +83,17 @@ def _config_get(parser: configparser.ConfigParser, section: str, option: str, fa
     return fallback
 
 
+def _config_feature_settings(parser: configparser.ConfigParser):
+    if parser.has_section('columns'):
+        raw_features = parser['columns'].get('feature_columns', fallback='')
+        feature_columns = [col.strip() for col in raw_features.split(',') if col.strip()] or None
+        target_column = parser['columns'].get('target_column', fallback=None)
+        if target_column:
+            target_column = target_column.strip() or None
+        return feature_columns, target_column
+    return None, None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run inference using a previously trained model.")
     parser.add_argument(
@@ -148,6 +159,9 @@ def main():
     if data_file is None:
         raise ValueError("No data file provided. Specify --data-file or define paths.data_file in the config.")
 
+    feature_columns, target_column = _config_feature_settings(config)
+    target_column = target_column or DEFAULT_TARGET_COLUMN
+
     model_type, output_dir, model_path, scaler_path, output_file = _resolve_paths(args, config)
 
     if not os.path.exists(model_path):
@@ -159,7 +173,11 @@ def main():
                 "MLP models require a fitted scaler. Provide --scaler-path or ensure the default scaler exists."
             )
 
-    original_df, feature_frame = load_features_for_inference(data_file)
+    original_df, feature_frame = load_features_for_inference(
+        data_file,
+        feature_columns=feature_columns,
+        target_column=target_column
+    )
 
     model = load(model_path)
     scaler = None
@@ -168,19 +186,19 @@ def main():
         transformed_features = scaler.transform(feature_frame)
         predictions = model.predict(transformed_features)
         results_df = original_df.copy()
-        results_df[f"{TARGET_COLUMN}_pred"] = predictions
+        results_df[f"{target_column}_pred"] = predictions
         pred_dist = None  # No distribution for MLP
     elif model_type == 'ngboost':
         pred_dist = model.pred_dist(feature_frame)
         predictions = pred_dist.loc
         std_devs = pred_dist.scale
         results_df = original_df.copy()
-        results_df[f"{TARGET_COLUMN}_pred"] = predictions
-        results_df[f"{TARGET_COLUMN}_pred_std"] = std_devs
+        results_df[f"{target_column}_pred"] = predictions
+        results_df[f"{target_column}_pred_std"] = std_devs
     else:  # xgboost
         predictions = model.predict(feature_frame)
         results_df = original_df.copy()
-        results_df[f"{TARGET_COLUMN}_pred"] = predictions
+        results_df[f"{target_column}_pred"] = predictions
         pred_dist = None  # No distribution for XGBoost
 
     # Recalculate alpha for both the features used in plotting and the output table
@@ -193,7 +211,7 @@ def main():
 
     print("Generating inference plots...")
 
-    y_true = original_df[TARGET_COLUMN] if TARGET_COLUMN in original_df.columns else None
+    y_true = original_df[target_column] if target_column in original_df.columns else None
     has_ground_truth = y_true is not None
 
     # Common plots (adapt spatial_error to use predictions if no y_true)
@@ -203,7 +221,7 @@ def main():
         plot_error_distribution(y_true, predictions, os.path.join(output_dir, 'inf_error_distribution.png'))
         plot_spatial_error(feature_frame, y_true, predictions, os.path.join(output_dir, 'inf_spatial_error.png'))
 
-    predicted_column = f"{TARGET_COLUMN}_pred"
+    predicted_column = f"{target_column}_pred"
     plot_color_color_with_target(results_df,predicted_column,os.path.join(output_dir, 'inf_color_color.png'))
 
     BASE_FEATURES = ['Ks_mag', 'I1_mag', 'I2_mag', 'I3_mag', 'I4_mag', predicted_column]
