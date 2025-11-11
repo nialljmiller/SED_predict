@@ -3,8 +3,21 @@ import inspect
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-def train_xgboost(X_train, y_train, X_val, y_val, learning_rate=0.01, n_estimators=2000, max_depth=6,
-                  min_child_weight=1, subsample=1.0, colsample_bytree=1.0, reg_alpha=0.1, reg_lambda=1.0):
+def train_xgboost(
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    learning_rate=0.01,
+    n_estimators=2000,
+    max_depth=6,
+    min_child_weight=1,
+    subsample=1.0,
+    colsample_bytree=1.0,
+    reg_alpha=0.1,
+    reg_lambda=1.0,
+    n_jobs=1,
+):
     """
     Trains an XGBoost regressor model and returns the model along with RMSE history.
     """
@@ -18,6 +31,7 @@ def train_xgboost(X_train, y_train, X_val, y_val, learning_rate=0.01, n_estimato
         colsample_bytree=colsample_bytree,
         reg_alpha=reg_alpha,
         reg_lambda=reg_lambda,
+        n_jobs=n_jobs,
         random_state=42,
         eval_metric='rmse'
     )
