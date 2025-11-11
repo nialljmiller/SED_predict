@@ -306,7 +306,7 @@ def main():
         mag_columns=mag_columns,
         filter_wavelengths=filter_wavelengths,
         max_sources=500,   # tune as you like
-        y_mode="rank",     # nice “wavetable” separation
+        y_mode="alphas",     # nice “wavetable” separation
     )
 
     # 1) All sources
