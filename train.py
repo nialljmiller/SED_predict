@@ -6,8 +6,8 @@ from joblib import dump
 from data_loader import load_and_split_data
 from posterior import generate_posterior  # Import the new function
 import numpy as np
-from sklearn.model_selection import train_test_split, RandomizedSearchCV
-import pandas as pd
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import ParameterGrid
 
 from plots import (
     plot_actual_vs_predicted, 
@@ -29,14 +29,35 @@ def main():
     
     # Extract parameters
     data_file = config['paths']['data_file']
-    learning_rate = float(config['hyperparameters']['learning_rate'])
-    n_estimators = int(config['hyperparameters']['n_estimators'])
-    max_depth = int(config['hyperparameters']['max_depth'])
     test_size = float(config['general']['test_size'])
     val_size = float(config['general']['val_size'])
     random_state = int(config['general']['random_state'])
     output_dir = config['general']['output_dir']
     model_type = config['general'].get('model_type', 'xgboost')  # Default to xgboost
+    hyperparameter_tuning = config['general'].getboolean('hyperparameter_tuning', fallback=False)
+
+    hyperparam_values = {}
+    if config.has_section('hyperparameters'):
+        for key, value in config['hyperparameters'].items():
+            entries = [item.strip() for item in value.split(',') if item.strip()]
+            if not entries:
+                continue
+
+            def smart_cast(item):
+                lower_item = item.lower()
+                if lower_item in {'true', 'false'}:
+                    return lower_item == 'true'
+                try:
+                    int_val = int(item)
+                    return int_val
+                except ValueError:
+                    try:
+                        float_val = float(item)
+                        return float_val
+                    except ValueError:
+                        return item
+
+            hyperparam_values[key] = [smart_cast(entry) for entry in entries]
 
     feature_columns = None
     target_column = None
@@ -48,7 +69,6 @@ def main():
             target_column = target_column.strip() or None
 
     # Control parallelism to avoid exhausting system resources during CV or model training
-    search_n_jobs = max(1, int(config['general'].get('search_n_jobs', '1')))
     booster_n_jobs = max(1, int(config['general'].get('booster_n_jobs', str(max(1, os.cpu_count() or 1)))))
     
     # Create output directory if it doesn't exist
@@ -64,62 +84,172 @@ def main():
         target_column=target_column
     )
     
-    # For tuning, recreate X_train_val and y_train_val (since splits are deterministic)
-    # But since features are now in data_loader, we can concat train and val
-    X_train_val = pd.concat([X_train, X_val])
-    y_train_val = pd.concat([y_train, y_val])
-    
     # Train and evaluate based on model_type
     scaler = None
     history = None
     if model_type == 'ngboost':
         from ngboost_model import train_ngboost, evaluate_model
-        model, history = train_ngboost(
-            X_train, y_train, X_val, y_val, learning_rate, n_estimators, max_depth
-        )
+        ngb_defaults = {
+            'learning_rate': 0.1,
+            'n_estimators': 100,
+            'max_depth': 3,
+        }
+        ngb_param_grid = {
+            key: hyperparam_values.get(key, [default])
+            for key, default in ngb_defaults.items()
+        }
+
+        if hyperparameter_tuning:
+            best_score = float('inf')
+            best_result = None
+            for params in ParameterGrid(ngb_param_grid):
+                candidate_model, candidate_history = train_ngboost(
+                    X_train,
+                    y_train,
+                    X_val,
+                    y_val,
+                    learning_rate=params['learning_rate'],
+                    n_estimators=params['n_estimators'],
+                    max_depth=params['max_depth'],
+                )
+                val_predictions = candidate_model.predict(X_val)
+                val_rmse = mean_squared_error(y_val, val_predictions)
+                if val_rmse < best_score:
+                    best_score = val_rmse
+                    best_result = (params, candidate_model, candidate_history)
+
+            assert best_result is not None, "Hyperparameter tuning failed to produce a model."
+            best_params, model, history = best_result
+            print(f"Selected NGBoost hyperparameters: {best_params}")
+        else:
+            selected_params = {key: values[0] for key, values in ngb_param_grid.items()}
+            model, history = train_ngboost(
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                learning_rate=selected_params['learning_rate'],
+                n_estimators=selected_params['n_estimators'],
+                max_depth=selected_params['max_depth'],
+            )
+            best_params = selected_params
+
         predictions = evaluate_model(model, X_test, y_test)
     elif model_type == 'xgboost':
         import xgboost as xgb
         from xgboost_model import train_xgboost, evaluate_model
-        
-        # Base model for search (without early stopping, as CV handles validation)
-        base_model = xgb.XGBRegressor(
-            objective='reg:squarederror',
-            random_state=42,
-            reg_alpha=0.1,
-            reg_lambda=1.0,
-            n_jobs=booster_n_jobs
-        )
 
-        # Parameter distribution for RandomizedSearchCV
-        param_dist = {
+        xgb_defaults = {
             'learning_rate': 0.01,
             'n_estimators': 2000,
             'max_depth': 6,
-            'min_child_weight': 3,
-            'subsample': 0.7,
-            'colsample_bytree': 0.7
+            'min_child_weight': 1,
+            'subsample': 1.0,
+            'colsample_bytree': 1.0,
+            'reg_alpha': 0.1,
+            'reg_lambda': 1.0,
         }
+        xgb_param_grid = {
+            key: hyperparam_values.get(key, [default])
+            for key, default in xgb_defaults.items()
+        }
+        xgb_param_grid['n_jobs'] = [booster_n_jobs]
 
-        
-        best_params = param_dist
+        if hyperparameter_tuning:
+            best_score = float('inf')
+            best_result = None
+            for params in ParameterGrid(xgb_param_grid):
+                candidate_model, candidate_history = train_xgboost(
+                    X_train,
+                    y_train,
+                    X_val,
+                    y_val,
+                    learning_rate=params['learning_rate'],
+                    n_estimators=params['n_estimators'],
+                    max_depth=params['max_depth'],
+                    min_child_weight=params['min_child_weight'],
+                    subsample=params['subsample'],
+                    colsample_bytree=params['colsample_bytree'],
+                    reg_alpha=params['reg_alpha'],
+                    reg_lambda=params['reg_lambda'],
+                    n_jobs=params['n_jobs'],
+                )
+                val_predictions = candidate_model.predict(X_val)
+                val_rmse = mean_squared_error(y_val, val_predictions)
+                if val_rmse < best_score:
+                    best_score = val_rmse
+                    best_result = (params, candidate_model, candidate_history)
 
-        model, history = train_xgboost(
-            X_train, y_train, X_val, y_val,
-            learning_rate=best_params['learning_rate'],
-            n_estimators=best_params['n_estimators'],
-            max_depth=best_params['max_depth'],
-            min_child_weight=best_params['min_child_weight'],
-            subsample=best_params['subsample'],
-            colsample_bytree=best_params['colsample_bytree']
-        )
-        
+            assert best_result is not None, "Hyperparameter tuning failed to produce a model."
+            best_params, model, history = best_result
+            print(f"Selected XGBoost hyperparameters: {best_params}")
+        else:
+            selected_params = {key: values[0] for key, values in xgb_param_grid.items()}
+            model, history = train_xgboost(
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                learning_rate=selected_params['learning_rate'],
+                n_estimators=selected_params['n_estimators'],
+                max_depth=selected_params['max_depth'],
+                min_child_weight=selected_params['min_child_weight'],
+                subsample=selected_params['subsample'],
+                colsample_bytree=selected_params['colsample_bytree'],
+                reg_alpha=selected_params['reg_alpha'],
+                reg_lambda=selected_params['reg_lambda'],
+                n_jobs=selected_params['n_jobs'],
+            )
+            best_params = selected_params
+
         predictions = evaluate_model(model, X_test, y_test)
     elif model_type == 'mlp':
         from mlp_model import train_mlp, evaluate_model
-        model, scaler, history = train_mlp(
-            X_train, y_train, X_val, y_val, learning_rate, n_estimators, max_depth
-        )
+        mlp_defaults = {
+            'learning_rate': 0.1,
+            'n_estimators': 100,
+            'max_depth': 3,
+        }
+        mlp_param_grid = {
+            key: hyperparam_values.get(key, [default])
+            for key, default in mlp_defaults.items()
+        }
+
+        if hyperparameter_tuning:
+            best_score = float('inf')
+            best_result = None
+            for params in ParameterGrid(mlp_param_grid):
+                candidate_model, candidate_scaler, candidate_history = train_mlp(
+                    X_train,
+                    y_train,
+                    X_val,
+                    y_val,
+                    learning_rate=params['learning_rate'],
+                    n_estimators=params['n_estimators'],
+                    max_depth=params['max_depth'],
+                )
+                val_predictions = candidate_model.predict(candidate_scaler.transform(X_val))
+                val_rmse = mean_squared_error(y_val, val_predictions)
+                if val_rmse < best_score:
+                    best_score = val_rmse
+                    best_result = (params, candidate_model, candidate_scaler, candidate_history)
+
+            assert best_result is not None, "Hyperparameter tuning failed to produce a model."
+            best_params, model, scaler, history = best_result
+            print(f"Selected MLP hyperparameters: {best_params}")
+        else:
+            selected_params = {key: values[0] for key, values in mlp_param_grid.items()}
+            model, scaler, history = train_mlp(
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                learning_rate=selected_params['learning_rate'],
+                n_estimators=selected_params['n_estimators'],
+                max_depth=selected_params['max_depth'],
+            )
+            best_params = selected_params
+
         predictions = evaluate_model(model, scaler, X_test, y_test)
     else:
         raise ValueError(f"Unsupported model_type: {model_type}.")
