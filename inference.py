@@ -325,6 +325,7 @@ def main():
         plot_sed_wavetable_3d(
             X=results_df.loc[mask],
             alphas=results_df.loc[mask, "alpha"].values,
+            title=cls,
             save_path=os.path.join(output_dir, f"inf_sed_wavetable_{cls}.png"),
             **common_kwargs,
         )

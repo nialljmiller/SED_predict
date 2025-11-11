@@ -320,6 +320,7 @@ def plot_sed_wavetable_3d(
     figsize=(10, 7),
     max_sources=500,
     y_mode="rank",
+    title=None,
 ):
     """
     Make a 3D 'wavetable' plot of SEDs built from filter magnitudes.
@@ -432,7 +433,37 @@ def plot_sed_wavetable_3d(
     ax.zaxis.label.set_color("white")
     ax.tick_params(colors="white", which="both")
 
+    # --- wall-mounted title on the far x–z plane (visible grey wall) ---
+    if title is not None:
+        try:
+            y_min, y_max = ax.get_ylim3d()
+        except Exception:
+            y_min, y_max = ax.get_ylim()
+
+        x_min, x_max = lam.min(), lam.max()
+        z_min, z_max = np.nanmin(sed_vals), np.nanmax(sed_vals)
+
+        x_mid = 0.5 * (x_min + x_max)
+        z_top = z_max * 1.02  # a bit above the top of the waves
+
+        # use y_min: that’s the visible α wall in your current view
+        ax.text(
+            x_mid,
+            y_min,        # <- changed from y_max
+            z_top*0.8,
+            title,
+            color="white",
+            ha="center",
+            va="top",
+            fontsize=12,
+            zdir="x",    # lie in x–z plane (wall ⟂ y)
+            #rotation = 40
+        )
+
     plt.tight_layout()
+
+
+
 
     if save_path is not None:
         plt.savefig(save_path, dpi=200, bbox_inches="tight")

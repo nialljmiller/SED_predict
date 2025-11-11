@@ -1,5 +1,5 @@
 [paths]
-data_file = data/yso_training_data.csv
+data_file = data/carina_vista_data.csv
 
 [general]
 test_size = 0.2
