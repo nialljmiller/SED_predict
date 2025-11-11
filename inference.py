@@ -14,7 +14,8 @@ from plots import (
     plot_actual_vs_predicted, plot_residuals, plot_error_distribution,
     plot_spatial_error, plot_uncertainty_comparison, plot_posterior_distributions,
     plot_residual_distributions, plot_color_color_with_target,
-    plot_galactic_position_with_band
+    plot_galactic_position_with_band,
+    plot_sed_wavetable_3d
 )
 from posterior import generate_posterior, quantify_uncertainties
 
@@ -150,6 +151,19 @@ def _resolve_paths(args: argparse.Namespace, config: configparser.ConfigParser):
 
     return model_type, output_dir, model_path, scaler_path, output_file
 
+# Attach YSO class based on alpha, for later filtering
+def _alpha_to_class(a):
+    if a > 0.3:
+        return "Class0"
+    elif a > -0.3:
+        return "ClassI"
+    elif a > -1.6:
+        return "ClassII"
+    else:
+        return "ClassIII"
+
+
+
 
 def main():
     args = parse_args()
@@ -207,6 +221,14 @@ def main():
 
     results_df.to_csv(output_file, index=False)
 
+    # Define alphas ONCE, for all later plots
+    if 'alpha' in feature_frame.columns:
+        alphas = feature_frame['alpha'].values
+    else:
+        alphas = np.zeros(len(feature_frame))
+    
+    results_df["YSO_Class"] = [_alpha_to_class(a) for a in alphas]
+
     print(f"Inference complete. Saved predictions for {len(results_df)} sources to {output_file}")
 
     print("Generating inference plots...")
@@ -259,6 +281,54 @@ def main():
         if has_ground_truth:
             plot_residual_distributions(y_true, predictions, model_samples_list, deltas_list,
                                         os.path.join(output_dir, 'inf_residual_distributions.png'))
+
+    # --- 3D SED wavetable plots (all + per YSO class) ---
+    predicted_column = f"{target_column}_pred"
+    mag_columns = [
+        "Ks_mag",
+        "I1_mag",
+        "I2_mag",
+        "I3_mag",
+        "I4_mag",
+        predicted_column,  # predicted MIPS24
+    ]
+
+    filter_wavelengths = {
+        "Ks_mag": 2.16,
+        "I1_mag": 3.6,
+        "I2_mag": 4.5,
+        "I3_mag": 5.8,
+        "I4_mag": 8.0,
+        predicted_column: 24.0,
+    }
+
+    common_kwargs = dict(
+        mag_columns=mag_columns,
+        filter_wavelengths=filter_wavelengths,
+        max_sources=500,   # tune as you like
+        y_mode="rank",     # nice “wavetable” separation
+    )
+
+    # 1) All sources
+    plot_sed_wavetable_3d(
+        X=results_df,
+        alphas=results_df["alpha"].values,
+        save_path=os.path.join(output_dir, "inf_sed_wavetable_all.png"),
+        **common_kwargs,
+    )
+
+    # 2–4) Per YSO class
+    for cls in ["Class0", "ClassI", "ClassII", "ClassIII"]:
+        mask = results_df["YSO_Class"] == cls
+        if not mask.any():
+            continue
+        plot_sed_wavetable_3d(
+            X=results_df.loc[mask],
+            alphas=results_df.loc[mask, "alpha"].values,
+            save_path=os.path.join(output_dir, f"inf_sed_wavetable_{cls}.png"),
+            **common_kwargs,
+        )
+
 
     print(f"Plots saved in {output_dir} with prefix 'inf_' for inference-specific visualizations.")
 

@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # needed for 3D projection
 import seaborn as sns
 import pandas as pd
 import numpy as np
@@ -305,3 +306,137 @@ def plot_residual_distributions(y_test, predictions, model_samples_list, deltas_
     print(f"Residuals range: {residuals.min():.2f} to {residuals.max():.2f}")
     print(f"Model resids range: {model_resids.min():.2f} to {model_resids.max():.2f}")
     print(f"Incl resids range: {incl_resids.min():.2f} to {incl_resids.max():.2f}")
+
+
+
+def plot_sed_wavetable_3d(
+    X,
+    mag_columns,
+    alphas,
+    filter_wavelengths,
+    save_path=None,
+    use_flux=True,
+    normalize_per_source=True,
+    figsize=(10, 7),
+    max_sources=500,
+    y_mode="rank",
+):
+    """
+    Make a 3D 'wavetable' plot of SEDs built from filter magnitudes.
+
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        Table containing magnitude columns.
+    mag_columns : list of str
+        Column names in X that define the SED, in the desired wavelength order.
+    alphas : array-like, shape (N,)
+        Spectral indices for each source; used for sorting and/or colouring.
+    filter_wavelengths : dict
+        Mapping {column_name: central_wavelength}.
+    save_path : str or None
+        If provided, saves the figure to this path. If None, calls plt.show().
+    use_flux : bool
+        If True, convert mags -> pseudo-flux via 10^(-0.4 m). If False, use mags (with sign flipped).
+    normalize_per_source : bool
+        If True, normalize each SED to its own max so shapes are emphasized.
+    figsize : tuple
+        Figure size.
+    max_sources : int
+        Maximum number of SEDs to draw (subsampled after sorting by alpha).
+    y_mode : {"rank", "alpha"}
+        "rank": y-axis is index (sorted by alpha); colour encodes alpha.
+        "alpha": y-axis is actual alpha (original behaviour).
+    """
+    alphas = np.asarray(alphas, dtype=float)
+    mags = X[mag_columns].to_numpy(dtype=float)  # (N, F)
+
+    # Wavelength axis (F,)
+    lam = np.array([filter_wavelengths[col] for col in mag_columns], dtype=float)
+
+    # Sort sources by alpha
+    sort_idx = np.argsort(alphas)
+    alphas_sorted = alphas[sort_idx]
+    mags_sorted = mags[sort_idx]
+
+    # Optional downsampling for aesthetics
+    n_total = mags_sorted.shape[0]
+    if max_sources is not None and n_total > max_sources:
+        idx = np.linspace(0, n_total - 1, max_sources, dtype=int)
+        alphas_sorted = alphas_sorted[idx]
+        mags_sorted = mags_sorted[idx]
+
+    # Convert mags to something "SED-like"
+    if use_flux:
+        sed_vals = 10.0 ** (-0.4 * mags_sorted)
+    else:
+        sed_vals = -mags_sorted
+
+    if normalize_per_source:
+        max_per_row = np.nanmax(sed_vals, axis=1, keepdims=True)
+        max_per_row[max_per_row == 0.0] = 1.0
+        sed_vals = sed_vals / max_per_row
+
+    fig = plt.figure(figsize=figsize)
+    ax = fig.add_subplot(111, projection="3d")
+
+    cmap = plt.cm.viridis
+    n_src, n_filt = sed_vals.shape
+
+    a_min = np.nanmin(alphas_sorted)
+    a_max = np.nanmax(alphas_sorted)
+    a_range = (a_max - a_min) if a_max > a_min else 1.0
+
+    for i in range(n_src):
+        if y_mode == "rank":
+            y_val = i / max(1, n_src - 1)  # 0..1
+        else:
+            y_val = alphas_sorted[i]
+
+        y = np.full_like(lam, y_val, dtype=float)
+        z = sed_vals[i]
+
+        # colour by alpha
+        c_norm = (alphas_sorted[i] - a_min) / a_range
+        color = cmap(c_norm)
+
+        ax.plot(
+            lam,
+            y,
+            z,
+            color=color,
+            linewidth=0.8,
+            alpha=0.8,
+        )
+
+    ax.set_xlabel("Wavelength")
+
+    if y_mode == "rank":
+        ax.set_ylabel("SED index (sorted by α)")
+    else:
+        ax.set_ylabel(r"$\alpha$")
+
+    ax.set_zlabel("Relative flux" if use_flux else "Relative (−mag)")
+
+    if lam[0] > lam[-1]:
+        ax.invert_xaxis()
+
+    ax.view_init(elev=20, azim=120)
+    ax.grid(False)
+
+    # dark-ish aesthetic
+    ax.set_facecolor("0.15")
+    fig.patch.set_facecolor("black")
+    ax.xaxis.label.set_color("white")
+    ax.yaxis.label.set_color("white")
+    ax.zaxis.label.set_color("white")
+    ax.tick_params(colors="white", which="both")
+
+    plt.tight_layout()
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+    else:
+        plt.show()
+
